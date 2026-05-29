@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Gallery</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f0f; color: #eee; max-width: 1200px; margin: 0 auto; padding: 20px; min-height: 100vh; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
+    h1 { font-size: 1.5rem; }
+    .btn { padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; background: #3b82f6; color: white; transition: background 0.15s; }
+    .btn:hover { background: #2563eb; }
+    .btn-secondary { background: #374151; }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
+    .card { background: #1a1a1a; border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.15s; border: 1px solid #262626; }
+    .card:hover { transform: translateY(-3px); border-color: #3b82f6; }
+    .card img { width: 100%; height: 180px; object-fit: cover; display: block; background: #222; }
+    .card .info { padding: 14px; }
+    .card h3 { font-size: 1rem; margin-bottom: 4px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card .meta { font-size: 0.85rem; color: #888; }
+
+    .pagination { display: flex; gap: 12px; justify-content: center; margin-top: 35px; align-items: center; }
+    .pagination button { padding: 8px 16px; background: #1a1a1a; border: 1px solid #333; color: #eee; border-radius: 6px; cursor: pointer; }
+    .pagination button:disabled { opacity: 0.3; cursor: default; }
+
+    .img-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+    .img-grid .img-wrap { position: relative; padding-bottom: 100%; background: #1a1a1a; border-radius: 8px; overflow: hidden; }
+    .img-grid img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; cursor: pointer; display: block; }
+    .img-grid img:hover { opacity: 0.85; }
+
+    .loading { text-align: center; padding: 30px; color: #666; }
+    .empty { text-align: center; padding: 60px 20px; color: #666; }
+    .empty p { margin-top: 10px; font-size: 0.95rem; }
+
+    #uploadModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 90; justify-content: center; align-items: center; padding: 20px; }
+    #uploadModal.active { display: flex; }
+    .modal-box { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 24px; max-width: 550px; width: 100%; max-height: 85vh; overflow-y: auto; }
+    .modal-box h2 { margin-bottom: 16px; font-size: 1.2rem; }
+    .modal-box input[type="text"] { width: 100%; padding: 10px; background: #0f0f0f; border: 1px solid #333; color: #eee; border-radius: 6px; margin-bottom: 14px; font-size: 1rem; }
+    .preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; max-height: 250px; overflow-y: auto; margin-bottom: 14px; }
+    .preview-grid img { width: 100%; height: 70px; object-fit: cover; border-radius: 4px; background: #222; }
+    .preview-grid .more { display: flex; align-items: center; justify-content: center; background: #222; border-radius: 4px; color: #888; font-size: 0.8rem; }
+    .progress-bar { width: 100%; height: 6px; background: #222; border-radius: 3px; overflow: hidden; margin-top: 12px; }
+    .progress-fill { height: 100%; background: #3b82f6; width: 0%; transition: width 0.2s; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+
+    #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 100; justify-content: center; align-items: center; padding: 20px; }
+    #lightbox.active { display: flex; }
+    #lightbox img { max-width: 100%; max-height: 90vh; border-radius: 8px; }
+    #lightbox .close-btn { position: absolute; top: 20px; right: 30px; font-size: 2.5rem; color: #fff; cursor: pointer; background: none; border: none; line-height: 1; }
+
+    .error-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #dc2626; color: white; padding: 12px 24px; border-radius: 8px; z-index: 200; display: none; }
+    .error-toast.active { display: block; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Image Sets</h1>
+    <div>
+      <button class="btn" onclick="openUpload()">+ Upload Folder</button>
+    </div>
+  </div>
+
+  <div id="setsView" class="view active">
+    <div class="grid" id="setsGrid"></div>
+    <div class="pagination" id="setsPagination" style="display:none;"></div>
+    <div class="empty" id="setsEmpty" style="display:none;">
+      <h3>No sets yet</h3>
+      <p>Click "Upload Folder" to add your first image set.</p>
+    </div>
+  </div>
+
+  <div id="detailView" class="view">
+    <button class="btn btn-secondary" onclick="showSets()" style="margin-bottom:16px;">← Back to Sets</button>
+    <h2 id="detailTitle" style="margin-bottom:16px;"></h2>
+    <div class="img-grid" id="imagesGrid"></div>
+    <div class="loading" id="imagesLoading">Loading...</div>
+  </div>
+
+  <div id="uploadModal">
+    <div class="modal-box">
+      <h2>Create New Set</h2>
+      <input type="text" id="setTitle" placeholder="Set title...">
+      <div class="preview-grid" id="previewGrid"></div>
+      <div id="uploadMeta" style="color:#888; font-size:0.9rem;"></div>
+      <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="modal-actions">
+        <button class="btn" id="uploadBtn" onclick="startUpload()">Create Set</button>
+        <button class="btn btn-secondary" onclick="closeUpload()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="lightbox" onclick="closeLightbox(event)">
+    <button class="close-btn" onclick="closeLightbox(event)">&times;</button>
+    <img id="lightboxImg" src="" alt="">
+  </div>
+
+  <div class="error-toast" id="errorToast"></div>
+
+  <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none">
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // ===================== CONFIGURE THESE =====================
+    const SUPABASE_URL = 'https://oxeghayulnnihulytgio.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_LweqYhmjd-YcWoR6ZrKxug_QB2ML0Yp';
+    // =========================================================
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const BUCKET = 'gallery';
+
+    // --- State ---
+    let setsPage = 1;
+    const SETS_PER_PAGE = 12;
+    let currentSetId = null;
+    let imagesPage = 1;
+    const IMAGES_PER_PAGE = 20;
+    let imagesHasMore = true;
+    let imagesLoading = false;
+    let pendingFiles = [];
+    let objectUrls = [];
+
+    // --- Helpers ---
+    function showError(msg) {
+      const toast = document.getElementById('errorToast');
+      toast.textContent = msg;
+      toast.classList.add('active');
+      setTimeout(() => toast.classList.remove('active'), 4000);
+    }
+
+    function showSets() {
+      objectUrls.forEach(u => URL.revokeObjectURL(u));
+      objectUrls = [];
+      document.getElementById('setsView').classList.add('active');
+      document.getElementById('detailView').classList.remove('active');
+      currentSetId = null;
+      renderSets();
+    }
+
+    function showDetail(setId, title) {
+      objectUrls.forEach(u => URL.revokeObjectURL(u));
+      objectUrls = [];
+      currentSetId = setId;
+      imagesPage = 1;
+      imagesHasMore = true;
+      imagesLoading = false;
+      document.getElementById('setsView').classList.remove('active');
+      document.getElementById('detailView').classList.add('active');
+      document.getElementById('imagesGrid').innerHTML = '';
+      document.getElementById('imagesLoading').style.display = 'block';
+      document.getElementById('detailTitle').textContent = title || 'Untitled';
+      loadMoreImages();
+    }
+
+    // --- Render Sets ---
+    async function renderSets() {
+      try {
+        const from = (setsPage - 1) * SETS_PER_PAGE;
+        const to = from + SETS_PER_PAGE - 1;
+
+        const { data: sets, error, count } = await supabaseClient
+          .from('image_sets')
+          .select('*', { count: 'exact' })
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (error) throw error;
+
+        const total = count || 0;
+        const totalPages = Math.max(1, Math.ceil(total / SETS_PER_PAGE));
+        if (setsPage > totalPages) setsPage = totalPages;
+        if (setsPage < 1) setsPage = 1;
+
+        const grid = document.getElementById('setsGrid');
+        const empty = document.getElementById('setsEmpty');
+        const pag = document.getElementById('setsPagination');
+
+        if (total === 0) {
+          grid.innerHTML = '';
+          empty.style.display = 'block';
+          pag.style.display = 'none';
+          return;
+        }
+
+        empty.style.display = 'none';
+        pag.style.display = 'flex';
+        grid.innerHTML = '';
+
+        for (const set of sets) {
+          const div = document.createElement('div');
+          div.className = 'card';
+          div.onclick = () => showDetail(set.id, set.title);
+          const coverUrl = supabaseClient.storage.from(BUCKET).getPublicUrl(set.cover_path).data.publicUrl;
+          div.innerHTML = `
+            <img src="${coverUrl}" alt="${set.title || ''}" loading="lazy" onerror="this.style.display='none'">
+            <div class="info">
+              <h3>${set.title || 'Untitled'}</h3>
+              <div class="meta">${new Date(set.created_at).toLocaleDateString()}</div>
+            </div>
+          `;
+          grid.appendChild(div);
+        }
+
+        pag.innerHTML = `
+          <button ${setsPage === 1 ? 'disabled' : ''} onclick="changeSetsPage(-1)">Previous</button>
+          <span style="color:#888; font-size:0.9rem;">Page ${setsPage} of ${totalPages}</span>
+          <button ${setsPage >= totalPages ? 'disabled' : ''} onclick="changeSetsPage(1)">Next</button>
+        `;
+      } catch (err) {
+        showError('Failed to load sets: ' + err.message);
+        console.error(err);
+      }
+    }
+
+    function changeSetsPage(delta) {
+      setsPage += delta;
+      renderSets();
+    }
+
+    // --- Render Images (Infinite Scroll) ---
+    async function loadMoreImages() {
+      if (imagesLoading || !imagesHasMore || !currentSetId) return;
+      imagesLoading = true;
+      try {
+        const from = (imagesPage - 1) * IMAGES_PER_PAGE;
+        const to = from + IMAGES_PER_PAGE - 1;
+
+        const { data: imgs, error, count } = await supabaseClient
+          .from('images')
+          .select('*', { count: 'exact' })
+          .eq('set_id', currentSetId)
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (error) throw error;
+
+        const grid = document.getElementById('imagesGrid');
+        for (const img of imgs) {
+          const wrap = document.createElement('div');
+          wrap.className = 'img-wrap';
+          const el = document.createElement('img');
+          const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
+          el.src = url;
+          el.alt = img.filename || '';
+          el.loading = 'lazy';
+          el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
+          wrap.appendChild(el);
+          grid.appendChild(wrap);
+        }
+
+        const total = count || 0;
+        imagesHasMore = (from + imgs.length) < total;
+        imagesPage++;
+        if (!imagesHasMore) document.getElementById('imagesLoading').style.display = 'none';
+      } catch (err) {
+        showError('Failed to load images: ' + err.message);
+        console.error(err);
+      }
+      imagesLoading = false;
+    }
+
+    const scrollObserver = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) loadMoreImages();
+    }, { rootMargin: '300px' });
+
+    // --- Upload ---
+    function openUpload() {
+      document.getElementById('folderInput').click();
+    }
+
+    document.getElementById('folderInput').addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files).filter(f => f.type && f.type.startsWith('image/'));
+      if (!files.length) {
+        showError('No images found in selected folder');
+        return;
+      }
+      pendingFiles = files;
+      const folderName = files[0].webkitRelativePath ? files[0].webkitRelativePath.split('/')[0] : 'Untitled';
+      document.getElementById('setTitle').value = folderName;
+
+      const grid = document.getElementById('previewGrid');
+      grid.innerHTML = '';
+      const previews = files.slice(0, 24);
+      for (const f of previews) {
+        const url = URL.createObjectURL(f);
+        objectUrls.push(url);
+        const img = document.createElement('img');
+        img.src = url;
+        grid.appendChild(img);
+      }
+      if (files.length > 24) {
+        const more = document.createElement('div');
+        more.className = 'more';
+        more.textContent = '+' + (files.length - 24) + ' more';
+        grid.appendChild(more);
+      }
+
+      document.getElementById('uploadMeta').textContent = files.length + ' images selected';
+      document.getElementById('progressFill').style.width = '0%';
+      document.getElementById('uploadBtn').disabled = false;
+      document.getElementById('uploadBtn').textContent = 'Create Set';
+      document.getElementById('uploadModal').classList.add('active');
+    });
+
+    function closeUpload() {
+      document.getElementById('uploadModal').classList.remove('active');
+      document.getElementById('folderInput').value = '';
+      objectUrls.forEach(u => URL.revokeObjectURL(u));
+      objectUrls = [];
+      pendingFiles = [];
+    }
+
+    async function startUpload() {
+      const btn = document.getElementById('uploadBtn');
+      const fill = document.getElementById('progressFill');
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
+
+      try {
+        const title = document.getElementById('setTitle').value.trim() || 'Untitled';
+        const setId = Date.now().toString();
+        const timestamp = Date.now();
+
+        // Upload cover first
+        const coverFile = pendingFiles[0];
+        const coverPath = `sets/${setId}/${timestamp}_0_${coverFile.name}`;
+        const { error: coverErr } = await supabaseClient.storage.from(BUCKET).upload(coverPath, coverFile);
+        if (coverErr) throw coverErr;
+
+        // Create set record
+        const { data: setData, error: setErr } = await supabaseClient
+          .from('image_sets')
+          .insert({ title, cover_path: coverPath })
+          .select()
+          .single();
+        if (setErr) throw setErr;
+
+        const realSetId = setData.id;
+
+        // Upload remaining images
+        for (let i = 0; i < pendingFiles.length; i++) {
+          const f = pendingFiles[i];
+          const path = `sets/${setId}/${timestamp}_${i}_${f.name}`;
+          const { error: upErr } = await supabaseClient.storage.from(BUCKET).upload(path, f);
+          if (upErr) throw upErr;
+
+          await supabaseClient.from('images').insert({
+            set_id: realSetId,
+            path: path,
+            filename: f.name
+          });
+
+          fill.style.width = ((i + 1) / pendingFiles.length * 100) + '%';
+        }
+
+        closeUpload();
+        setsPage = 1;
+        showSets();
+      } catch (err) {
+        showError('Upload failed: ' + err.message);
+        console.error(err);
+        btn.disabled = false;
+        btn.textContent = 'Create Set';
+      }
+    }
+
+    // --- Lightbox ---
+    function openLightbox(src) {
+      document.getElementById('lightboxImg').src = src;
+      document.getElementById('lightbox').classList.add('active');
+    }
+    function closeLightbox(e) {
+      if (e) e.stopPropagation();
+      document.getElementById('lightbox').classList.remove('active');
+      document.getElementById('lightboxImg').src = '';
+    }
+
+    // --- Init ---
+    renderSets();
+    scrollObserver.observe(document.getElementById('imagesLoading'));
+  </script>
+</body>
+</html>

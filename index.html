@@ -16,6 +16,8 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-danger { background: #dc2626; padding: 6px 12px; font-size: 0.85rem; }
     .btn-danger:hover { background: #b91c1c; }
+    .btn-shuffle { background: #8b5cf6; }
+    .btn-shuffle:hover { background: #7c3aed; }
 
     .view { display: none; }
     .view.active { display: block; }
@@ -48,6 +50,7 @@
     #uploadModal.active { display: flex; }
     .modal-box { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 24px; max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto; }
     .modal-box h2 { margin-bottom: 16px; font-size: 1.2rem; }
+    .modal-box p { color: #888; font-size: 0.85rem; margin-bottom: 12px; }
     .modal-box input[type="text"] { width: 100%; padding: 10px; background: #0f0f0f; border: 1px solid #333; color: #eee; border-radius: 6px; margin-bottom: 14px; font-size: 1rem; }
     .preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; max-height: 200px; overflow-y: auto; margin-bottom: 14px; }
     .preview-grid img { width: 100%; height: 70px; object-fit: cover; border-radius: 4px; background: #222; }
@@ -56,16 +59,14 @@
     .progress-fill { height: 100%; background: #3b82f6; width: 0%; transition: width 0.2s; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 
-    .upload-list { max-height: 250px; overflow-y: auto; margin: 12px 0; }
-    .upload-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: #0f0f0f; border-radius: 6px; margin-bottom: 6px; font-size: 0.85rem; }
-    .upload-item .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .upload-item .status { font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; }
-    .upload-item .status.pending { color: #888; }
-    .upload-item .status.uploading { color: #3b82f6; }
-    .upload-item .status.done { color: #22c55e; }
-    .upload-item .status.fail { color: #dc2626; }
-    .upload-item .spinner { width: 12px; height: 12px; border: 2px solid #333; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.6s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .folder-list { margin: 12px 0; max-height: 200px; overflow-y: auto; }
+    .folder-item { display: flex; align-items: center; gap: 10px; padding: 8px; background: #0f0f0f; border-radius: 6px; margin-bottom: 6px; }
+    .folder-item .folder-name { flex: 1; font-weight: 500; }
+    .folder-item .folder-count { color: #888; font-size: 0.85rem; }
+    .folder-item .folder-status { font-size: 0.8rem; }
+    .folder-item .folder-status.done { color: #22c55e; }
+    .folder-item .folder-status.uploading { color: #3b82f6; }
+    .folder-item .folder-status.pending { color: #888; }
 
     #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 100; justify-content: center; align-items: center; padding: 20px; }
     #lightbox.active { display: flex; }
@@ -87,12 +88,11 @@
     .pw-box input[type="password"] { width: 100%; padding: 12px; background: #0f0f0f; border: 1px solid #333; color: #eee; border-radius: 6px; margin-bottom: 16px; font-size: 1rem; text-align: center; }
     .pw-box .pw-error { color: #dc2626; font-size: 0.9rem; margin-bottom: 12px; min-height: 20px; }
 
-    .sort-bar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+    .sort-bar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
     .sort-bar span { color: #888; font-size: 0.9rem; }
     .sort-bar button { padding: 6px 14px; background: #1a1a1a; border: 1px solid #333; color: #eee; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
     .sort-bar button.active { background: #3b82f6; border-color: #3b82f6; }
   </style>
-<base target="_blank">
 </head>
 <body>
 
@@ -110,7 +110,7 @@
     <div class="header">
       <h1>Image Sets</h1>
       <div>
-        <button class="btn" onclick="openUpload()">+ Upload Folder</button>
+        <button class="btn" onclick="openUpload()">+ Upload Folder(s)</button>
       </div>
     </div>
 
@@ -119,7 +119,7 @@
       <div class="pagination" id="setsPagination" style="display:none;"></div>
       <div class="empty" id="setsEmpty" style="display:none;">
         <h3>No sets yet</h3>
-        <p>Click "Upload Folder" to add your first image set.</p>
+        <p>Click "Upload Folder(s)" to add image sets.</p>
       </div>
     </div>
 
@@ -130,6 +130,7 @@
         <span>Sort by:</span>
         <button id="sortNewest" class="active" onclick="setSort('newest')">Newest</button>
         <button id="sortLargest" onclick="setSort('largest')">Largest</button>
+        <button id="sortRandom" class="btn-shuffle" onclick="setSort('random')">🔀 Random</button>
       </div>
       <div class="img-column" id="imagesColumn"></div>
       <div class="loading" id="imagesLoading">Loading...</div>
@@ -137,15 +138,16 @@
 
     <div id="uploadModal">
       <div class="modal-box">
-        <h2>Create New Set</h2>
-        <input type="text" id="setTitle" placeholder="Set title...">
+        <h2>Create New Set(s)</h2>
+        <p>Select one or more folders. Each folder becomes its own set.</p>
+        <input type="text" id="setTitle" placeholder="Set title (optional, uses folder name if blank)...">
         <div class="preview-grid" id="previewGrid"></div>
         <div id="uploadMeta" style="color:#888; font-size:0.9rem;"></div>
-        <div class="upload-list" id="uploadList"></div>
+        <div class="folder-list" id="folderList"></div>
         <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
         <div id="uploadStatus" style="color:#888; font-size:0.85rem; margin-top:8px;"></div>
         <div class="modal-actions">
-          <button class="btn" id="uploadBtn" onclick="startUpload()">Create Set</button>
+          <button class="btn" id="uploadBtn" onclick="startUpload()">Create Set(s)</button>
           <button class="btn btn-secondary" onclick="closeUpload()">Cancel</button>
         </div>
       </div>
@@ -198,6 +200,7 @@
     let objectUrls = [];
     let allImagesInSet = [];
     let lightboxIndex = 0;
+    let folderGroups = [];
 
     function showError(msg) {
       const toast = document.getElementById('errorToast');
@@ -227,6 +230,7 @@
       allImagesInSet = [];
       document.getElementById('sortNewest').classList.add('active');
       document.getElementById('sortLargest').classList.remove('active');
+      document.getElementById('sortRandom').classList.remove('active');
       document.getElementById('setsView').classList.remove('active');
       document.getElementById('detailView').classList.add('active');
       document.getElementById('imagesColumn').innerHTML = '';
@@ -236,10 +240,11 @@
     }
 
     function setSort(mode) {
-      if (mode === currentSort) return;
+      if (mode === currentSort && mode !== 'random') return;
       currentSort = mode;
       document.getElementById('sortNewest').classList.toggle('active', mode === 'newest');
       document.getElementById('sortLargest').classList.toggle('active', mode === 'largest');
+      document.getElementById('sortRandom').classList.toggle('active', mode === 'random');
       imagesPage = 1;
       imagesHasMore = true;
       imagesLoading = false;
@@ -247,6 +252,15 @@
       document.getElementById('imagesColumn').innerHTML = '';
       document.getElementById('imagesLoading').style.display = 'block';
       loadMoreImages();
+    }
+
+    function shuffleArray(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
     }
 
     function formatSize(bytes) {
@@ -315,23 +329,38 @@
       try {
         const from = (imagesPage - 1) * IMAGES_PER_PAGE;
         const to = from + IMAGES_PER_PAGE - 1;
+
         let query = supabaseClient.from('images').select('*', { count: 'exact' }).eq('set_id', currentSetId);
         if (currentSort === 'newest') {
           query = query.order('created_at', { ascending: false });
-        } else {
+        } else if (currentSort === 'largest') {
           query = query.order('file_size', { ascending: false });
         }
         const { data: imgs, error, count } = await query.range(from, to);
+
         if (error) throw error;
+
+        let displayImgs = imgs;
+        if (currentSort === 'random') {
+          const { data: allImgs } = await supabaseClient
+            .from('images')
+            .select('*')
+            .eq('set_id', currentSetId);
+          if (allImgs) {
+            displayImgs = shuffleArray(allImgs).slice(from, to + 1);
+            imagesHasMore = false;
+          }
+        }
+
         const col = document.getElementById('imagesColumn');
-        for (const img of imgs) {
-          allImagesInSet.push(img);
+        for (const img of displayImgs) {
+          if (!allImagesInSet.find(x => x.id === img.id)) allImagesInSet.push(img);
           const wrap = document.createElement('div');
           wrap.className = 'img-wrap';
           const el = document.createElement('img');
           const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
           el.src = url; el.alt = img.filename || ''; el.loading = 'lazy';
-          el.onclick = (e) => { e.stopPropagation(); openLightbox(allImagesInSet.indexOf(img)); };
+          el.onclick = (e) => { e.stopPropagation(); openLightbox(allImagesInSet.findIndex(x => x.id === img.id)); };
           wrap.appendChild(el);
           const meta = document.createElement('div');
           meta.className = 'img-meta';
@@ -339,8 +368,11 @@
           wrap.appendChild(meta);
           col.appendChild(wrap);
         }
+
         const total = count || 0;
-        imagesHasMore = (from + imgs.length) < total;
+        if (currentSort !== 'random') {
+          imagesHasMore = (from + displayImgs.length) < total;
+        }
         imagesPage++;
         if (!imagesHasMore) document.getElementById('imagesLoading').style.display = 'none';
       } catch (err) { showError('Failed to load images: ' + err.message); console.error(err); }
@@ -356,49 +388,56 @@
     document.getElementById('folderInput').addEventListener('change', async (e) => {
       const files = Array.from(e.target.files).filter(f => f.type && f.type.startsWith('image/'));
       if (!files.length) { showError('No images found'); return; }
+
+      const groups = {};
+      files.forEach(f => {
+        const path = f.webkitRelativePath || f.name;
+        const folder = path.includes('/') ? path.split('/')[0] : 'Untitled';
+        if (!groups[folder]) groups[folder] = [];
+        groups[folder].push(f);
+      });
+
+      folderGroups = Object.entries(groups).map(([name, files]) => ({ name, files }));
       pendingFiles = files;
-      const folderName = files[0].webkitRelativePath ? files[0].webkitRelativePath.split('/')[0] : 'Untitled';
-      document.getElementById('setTitle').value = folderName;
+
+      const folderList = document.getElementById('folderList');
+      folderList.innerHTML = '';
+      folderGroups.forEach((group, i) => {
+        const item = document.createElement('div');
+        item.className = 'folder-item';
+        item.id = 'folder-item-' + i;
+        item.innerHTML = `<span class="folder-name">📁 ${group.name}</span><span class="folder-count">${group.files.length} images</span><span class="folder-status pending">Pending</span>`;
+        folderList.appendChild(item);
+      });
 
       const grid = document.getElementById('previewGrid');
       grid.innerHTML = '';
-      const previews = files.slice(0, 24);
+      const previews = folderGroups[0].files.slice(0, 24);
       for (const f of previews) {
         const url = URL.createObjectURL(f); objectUrls.push(url);
         const img = document.createElement('img'); img.src = url; grid.appendChild(img);
       }
-      if (files.length > 24) {
+      if (folderGroups[0].files.length > 24) {
         const more = document.createElement('div'); more.className = 'more';
-        more.textContent = '+' + (files.length - 24) + ' more'; grid.appendChild(more);
+        more.textContent = '+' + (folderGroups[0].files.length - 24) + ' more'; grid.appendChild(more);
       }
 
-      // Build per-image upload list
-      const list = document.getElementById('uploadList');
-      list.innerHTML = '';
-      files.forEach((f, i) => {
-        const item = document.createElement('div');
-        item.className = 'upload-item';
-        item.id = 'upload-item-' + i;
-        item.innerHTML = `<span class="name">${f.name}</span><span class="status pending">Pending</span>`;
-        list.appendChild(item);
-      });
-
-      document.getElementById('uploadMeta').textContent = files.length + ' images selected';
+      document.getElementById('uploadMeta').textContent = `${folderGroups.length} folder(s), ${files.length} total images`;
       document.getElementById('progressFill').style.width = '0%';
       document.getElementById('uploadStatus').textContent = '';
       document.getElementById('uploadBtn').disabled = false;
-      document.getElementById('uploadBtn').textContent = 'Create Set';
+      document.getElementById('uploadBtn').textContent = `Create ${folderGroups.length} Set(s)`;
       document.getElementById('uploadModal').classList.add('active');
     });
 
-    function updateItemStatus(index, status) {
-      const item = document.getElementById('upload-item-' + index);
+    function updateFolderStatus(index, status) {
+      const item = document.getElementById('folder-item-' + index);
       if (!item) return;
-      const badge = item.querySelector('.status');
-      badge.className = 'status ' + status;
-      if (status === 'uploading') badge.innerHTML = '<span class="spinner"></span> Uploading';
-      else if (status === 'done') badge.textContent = 'Done';
-      else if (status === 'fail') badge.textContent = 'Failed';
+      const badge = item.querySelector('.folder-status');
+      badge.className = 'folder-status ' + status;
+      if (status === 'uploading') badge.textContent = 'Uploading...';
+      else if (status === 'done') badge.textContent = 'Done ✓';
+      else if (status === 'fail') badge.textContent = 'Failed ✗';
       else badge.textContent = 'Pending';
     }
 
@@ -406,6 +445,7 @@
       document.getElementById('uploadModal').classList.remove('active');
       document.getElementById('folderInput').value = '';
       objectUrls.forEach(u => URL.revokeObjectURL(u)); objectUrls = []; pendingFiles = [];
+      folderGroups = [];
     }
 
     function makeId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 9); }
@@ -416,107 +456,64 @@
       const status = document.getElementById('uploadStatus');
       btn.disabled = true; btn.textContent = 'Uploading...';
 
-      try {
-        const title = document.getElementById('setTitle').value.trim() || 'Untitled';
-        const setId = makeId();
+      let totalFiles = pendingFiles.length;
+      let globalDone = 0;
+      let globalOk = 0;
+      let globalFail = 0;
 
-        status.textContent = 'Step 1/3: Uploading cover...';
-        updateItemStatus(0, 'uploading');
-        const coverFile = pendingFiles[0];
-        const coverPath = `sets/${setId}/cover_${makeId()}_${coverFile.name}`;
-        const { error: coverErr } = await supabaseClient.storage.from(BUCKET).upload(coverPath, coverFile);
-        if (coverErr) throw new Error('Cover upload failed: ' + coverErr.message);
-        updateItemStatus(0, 'done');
+      for (let g = 0; g < folderGroups.length; g++) {
+        const group = folderGroups[g];
+        updateFolderStatus(g, 'uploading');
+        status.textContent = `Uploading folder ${g + 1}/${folderGroups.length}: ${group.name}...`;
 
-        status.textContent = 'Step 2/3: Creating set record...';
-        const { data: setData, error: setErr } = await supabaseClient
-          .from('image_sets').insert({ title, cover_path: coverPath }).select().single();
-        if (setErr) throw new Error('Failed to create set: ' + setErr.message);
+        try {
+          const customTitle = document.getElementById('setTitle').value.trim();
+          const title = customTitle || group.name;
+          const setId = makeId();
 
-        const realSetId = setData.id;
-        status.textContent = `Step 3/3: Uploading ${pendingFiles.length} images in parallel...`;
+          const coverFile = group.files[0];
+          const coverPath = `sets/${setId}/cover_${makeId()}_${coverFile.name}`;
+          const { error: coverErr } = await supabaseClient.storage.from(BUCKET).upload(coverPath, coverFile);
+          if (coverErr) throw new Error('Cover failed: ' + coverErr.message);
 
-        const BATCH_SIZE = 50;
-        const allResults = [];
-        for (let batchStart = 0; batchStart < pendingFiles.length; batchStart += BATCH_SIZE) {
-          const batch = pendingFiles.slice(batchStart, batchStart + BATCH_SIZE);
-          batch.forEach((_, i) => updateItemStatus(batchStart + i, 'uploading'));
+          const { data: setData, error: setErr } = await supabaseClient
+            .from('image_sets').insert({ title, cover_path: coverPath }).select().single();
+          if (setErr) throw new Error('Set creation failed: ' + setErr.message);
 
-          const batchPromises = batch.map(async (f, batchIndex) => {
-            const globalIndex = batchStart + batchIndex;
-            const path = `sets/${setId}/img_${globalIndex}_${makeId()}_${f.name}`;
-            try {
-              const { error: upErr } = await supabaseClient.storage.from(BUCKET).upload(path, f);
-              if (upErr) throw upErr;
-              const { error: dbErr } = await supabaseClient.from('images').insert({
-                set_id: realSetId, path: path, filename: f.name, file_size: f.size
-              });
-              if (dbErr) throw dbErr;
-              return { success: true, index: globalIndex, name: f.name };
-            } catch (err) { return { success: false, index: globalIndex, name: f.name, error: err.message }; }
-          });
+          const realSetId = setData.id;
 
-          const batchResults = await Promise.all(batchPromises);
-          batchResults.forEach(r => updateItemStatus(r.index, r.success ? 'done' : 'fail'));
-          allResults.push(...batchResults);
+          const BATCH_SIZE = 50;
+          for (let batchStart = 0; batchStart < group.files.length; batchStart += BATCH_SIZE) {
+            const batch = group.files.slice(batchStart, batchStart + BATCH_SIZE);
+            const batchPromises = batch.map(async (f) => {
+              const path = `sets/${setId}/img_${makeId()}_${f.name}`;
+              try {
+                const { error: upErr } = await supabaseClient.storage.from(BUCKET).upload(path, f);
+                if (upErr) throw upErr;
+                const { error: dbErr } = await supabaseClient.from('images').insert({
+                  set_id: realSetId, path: path, filename: f.name, file_size: f.size
+                });
+                if (dbErr) throw dbErr;
+                return { success: true };
+              } catch (err) { return { success: false }; }
+            });
 
-          const done = Math.min(batchStart + BATCH_SIZE, pendingFiles.length);
-          const ok = allResults.filter(r => r.success).length;
-          const fail = allResults.filter(r => !r.success).length;
-          fill.style.width = (done / pendingFiles.length * 100) + '%';
-          status.textContent = `Uploading... ${done}/${pendingFiles.length} done (${ok} OK, ${fail} failed)`;
+            const results = await Promise.all(batchPromises);
+            globalDone += batch.length;
+            globalOk += results.filter(r => r.success).length;
+            globalFail += results.filter(r => !r.success).length;
+            fill.style.width = (globalDone / totalFiles * 100) + '%';
+            status.textContent = `Folder ${g + 1}/${folderGroups.length}: ${globalDone}/${totalFiles} done (${globalOk} OK, ${globalFail} fail)`;
+          }
+
+          updateFolderStatus(g, 'done');
+        } catch (err) {
+          updateFolderStatus(g, 'fail');
+          showError(`Folder "${group.name}" failed: ${err.message}`);
+          console.error(err);
         }
-
-        const failedCount = allResults.filter(r => !r.success).length;
-        const failedNames = allResults.filter(r => !r.success).map(r => r.name);
-        if (failedCount > 0) showError(`${failedCount} failed: ${failedNames.slice(0, 3).join(', ')}${failedNames.length > 3 ? '...' : ''}`);
-
-        closeUpload(); setsPage = 1; showSets();
-      } catch (err) {
-        showError('Upload failed: ' + err.message); console.error(err);
-        btn.disabled = false; btn.textContent = 'Create Set';
-        status.textContent = 'Error: ' + err.message;
       }
-    }
 
-    // --- Lightbox with keyboard nav ---
-    function openLightbox(index) {
-      lightboxIndex = index;
-      updateLightbox();
-      document.getElementById('lightbox').classList.add('active');
-      document.addEventListener('keydown', handleLightboxKey);
-    }
-
-    function updateLightbox() {
-      if (lightboxIndex < 0) lightboxIndex = allImagesInSet.length - 1;
-      if (lightboxIndex >= allImagesInSet.length) lightboxIndex = 0;
-      const img = allImagesInSet[lightboxIndex];
-      if (!img) return;
-      const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
-      document.getElementById('lightboxImg').src = url;
-      document.getElementById('lightboxCounter').textContent = `${lightboxIndex + 1} / ${allImagesInSet.length}`;
-    }
-
-    function navLightbox(dir, e) {
-      if (e) e.stopPropagation();
-      lightboxIndex += dir;
-      updateLightbox();
-    }
-
-    function handleLightboxKey(e) {
-      if (e.key === 'Escape') closeLightbox();
-      if (e.key === 'ArrowLeft') navLightbox(-1);
-      if (e.key === 'ArrowRight') navLightbox(1);
-    }
-
-    function closeLightbox(e) {
-      if (e) e.stopPropagation();
-      document.getElementById('lightbox').classList.remove('active');
-      document.getElementById('lightboxImg').src = '';
-      document.removeEventListener('keydown', handleLightboxKey);
-    }
-
-    function initApp() { renderSets(); scrollObserver.observe(document.getElementById('imagesLoading')); }
-  </script>
-</body>
-</html>
+      if (globalFail > 0) showError(`${globalFail} image(s) failed across all folders`);
+      closeUpload(); setsPage = 1; showSets();
+   

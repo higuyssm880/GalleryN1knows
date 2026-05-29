@@ -190,10 +190,9 @@
     let imagesHasMore = true;
     let imagesLoading = false;
     let currentSort = 'newest';
-    let pendingFiles = [];
     let objectUrls = [];
-    let allImagesCache = [];
     let pendingFolders = [];
+    let allImagesCache = []; // holds all images for random mode
 
     function showError(msg) {
       const toast = document.getElementById('errorToast');
@@ -228,23 +227,92 @@
       document.getElementById('detailView').classList.add('active');
       document.getElementById('imagesColumn').innerHTML = '';
       document.getElementById('imagesLoading').style.display = 'block';
+      document.getElementById('imagesLoading').textContent = 'Loading...';
       document.getElementById('detailTitle').textContent = title || 'Untitled';
       loadMoreImages();
     }
 
-    function setSort(mode) {
-      if (mode === currentSort) return;
+    async function setSort(mode) {
+      if (mode === currentSort && mode !== 'random') return;
       currentSort = mode;
       document.getElementById('sortNewest').classList.toggle('active', mode === 'newest');
       document.getElementById('sortLargest').classList.toggle('active', mode === 'largest');
       document.getElementById('sortRandom').classList.toggle('active', mode === 'random');
-      imagesPage = 1;
-      imagesHasMore = true;
-      imagesLoading = false;
-      allImagesCache = [];
       document.getElementById('imagesColumn').innerHTML = '';
       document.getElementById('imagesLoading').style.display = 'block';
-      loadMoreImages();
+
+      if (mode === 'random') {
+        // Random mode: load ALL images first, then shuffle
+        if (allImagesCache.length > 0 && currentSort === 'random') {
+          // Already cached, just re-shuffle
+          const shuffled = [...allImagesCache].sort(() => Math.random() - 0.5);
+          renderImageList(shuffled);
+          document.getElementById('imagesLoading').style.display = 'none';
+          return;
+        }
+        document.getElementById('imagesLoading').textContent = 'Loading all images...';
+        try {
+          allImagesCache = await fetchAllImages(currentSetId);
+          const shuffled = [...allImagesCache].sort(() => Math.random() - 0.5);
+          renderImageList(shuffled);
+          document.getElementById('imagesLoading').style.display = 'none';
+        } catch (err) {
+          showError('Random load failed: ' + err.message);
+          document.getElementById('imagesLoading').textContent = 'Error loading images';
+          console.error(err);
+        }
+      } else {
+        imagesPage = 1;
+        imagesHasMore = true;
+        imagesLoading = false;
+        allImagesCache = [];
+        document.getElementById('imagesLoading').textContent = 'Loading...';
+        loadMoreImages();
+      }
+    }
+
+    async function fetchAllImages(setId) {
+      const all = [];
+      let page = 1;
+      const perPage = 100; // fetch in larger chunks
+      while (true) {
+        const from = (page - 1) * perPage;
+        const to = from + perPage - 1;
+        const { data: imgs, error, count } = await supabaseClient
+          .from('images')
+          .select('*', { count: 'exact' })
+          .eq('set_id', setId)
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        if (imgs && imgs.length > 0) all.push(...imgs);
+        const total = count || 0;
+        const loaded = from + (imgs ? imgs.length : 0);
+        if (loaded >= total || !imgs || imgs.length === 0) break;
+        page++;
+      }
+      return all;
+    }
+
+    function renderImageList(imgs) {
+      const col = document.getElementById('imagesColumn');
+      col.innerHTML = '';
+      for (const img of imgs) {
+        const wrap = document.createElement('div');
+        wrap.className = 'img-wrap';
+        const el = document.createElement('img');
+        const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
+        el.src = url;
+        el.alt = img.filename || '';
+        el.loading = 'lazy';
+        el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
+        wrap.appendChild(el);
+        const meta = document.createElement('div');
+        meta.className = 'img-meta';
+        meta.textContent = img.file_size ? formatSize(img.file_size) : '';
+        wrap.appendChild(meta);
+        col.appendChild(wrap);
+      }
     }
 
     function formatSize(bytes) {
@@ -307,7 +375,7 @@
     function changeSetsPage(delta) { setsPage += delta; renderSets(); }
 
     async function loadMoreImages() {
-      if (imagesLoading || !imagesHasMore || !currentSetId) return;
+      if (imagesLoading || !imagesHasMore || !currentSetId || currentSort === 'random') return;
       imagesLoading = true;
       try {
         const from = (imagesPage - 1) * IMAGES_PER_PAGE;
@@ -318,69 +386,30 @@
           query = query.order('created_at', { ascending: false });
         } else if (currentSort === 'largest') {
           query = query.order('file_size', { ascending: false });
-        } else if (currentSort === 'random') {
-          query = query.order('created_at', { ascending: false });
         }
         const { data: imgs, error, count } = await query.range(from, to);
 
         if (error) throw error;
         const col = document.getElementById('imagesColumn');
-        const total = count || 0;
-
-        if (currentSort === 'random') {
-          if (imagesPage === 1) allImagesCache = [];
-          if (imgs && imgs.length > 0) allImagesCache.push(...imgs);
-
-          // Check if there are more pages to load
-          const loadedCount = (imagesPage - 1) * IMAGES_PER_PAGE + (imgs ? imgs.length : 0);
-          imagesHasMore = loadedCount < total && (imgs && imgs.length > 0);
-          imagesPage++;
-
-          if (imagesHasMore) {
-            // Auto-chain next page load for Random mode
-            imagesLoading = false;
-            setTimeout(() => loadMoreImages(), 10);
-            return;
-          }
-
-          // All loaded - shuffle and render
-          const shuffled = [...allImagesCache].sort(() => Math.random() - 0.5);
-          col.innerHTML = '';
-          for (const img of shuffled) {
-            const wrap = document.createElement('div');
-            wrap.className = 'img-wrap';
-            const el = document.createElement('img');
-            const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
-            el.src = url; el.alt = img.filename || ''; el.loading = 'lazy';
-            el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
-            wrap.appendChild(el);
-            const meta = document.createElement('div');
-            meta.className = 'img-meta';
-            meta.textContent = img.file_size ? formatSize(img.file_size) : '';
-            wrap.appendChild(meta);
-            col.appendChild(wrap);
-          }
-          document.getElementById('imagesLoading').style.display = 'none';
-        } else {
-          for (const img of imgs) {
-            const wrap = document.createElement('div');
-            wrap.className = 'img-wrap';
-            const el = document.createElement('img');
-            const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
-            el.src = url; el.alt = img.filename || ''; el.loading = 'lazy';
-            el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
-            wrap.appendChild(el);
-            const meta = document.createElement('div');
-            meta.className = 'img-meta';
-            meta.textContent = img.file_size ? formatSize(img.file_size) : '';
-            wrap.appendChild(meta);
-            col.appendChild(wrap);
-          }
-          const loadedCount = from + (imgs ? imgs.length : 0);
-          imagesHasMore = loadedCount < total && (imgs && imgs.length > 0);
-          imagesPage++;
-          if (!imagesHasMore) document.getElementById('imagesLoading').style.display = 'none';
+        for (const img of imgs) {
+          const wrap = document.createElement('div');
+          wrap.className = 'img-wrap';
+          const el = document.createElement('img');
+          const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
+          el.src = url; el.alt = img.filename || ''; el.loading = 'lazy';
+          el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
+          wrap.appendChild(el);
+          const meta = document.createElement('div');
+          meta.className = 'img-meta';
+          meta.textContent = img.file_size ? formatSize(img.file_size) : '';
+          wrap.appendChild(meta);
+          col.appendChild(wrap);
         }
+        const total = count || 0;
+        const loadedCount = from + (imgs ? imgs.length : 0);
+        imagesHasMore = loadedCount < total && (imgs && imgs.length > 0);
+        imagesPage++;
+        if (!imagesHasMore) document.getElementById('imagesLoading').style.display = 'none';
       } catch (err) { showError('Failed to load images: ' + err.message); console.error(err); }
       imagesLoading = false;
     }

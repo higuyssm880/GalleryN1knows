@@ -192,9 +192,7 @@
     let currentSort = 'newest';
     let pendingFiles = [];
     let objectUrls = [];
-    let allImagesCache = []; // cache for randomize
-
-    // Multi-folder upload state
+    let allImagesCache = [];
     let pendingFolders = [];
 
     function showError(msg) {
@@ -243,6 +241,7 @@
       imagesPage = 1;
       imagesHasMore = true;
       imagesLoading = false;
+      allImagesCache = [];
       document.getElementById('imagesColumn').innerHTML = '';
       document.getElementById('imagesLoading').style.display = 'block';
       loadMoreImages();
@@ -320,42 +319,48 @@
         } else if (currentSort === 'largest') {
           query = query.order('file_size', { ascending: false });
         } else if (currentSort === 'random') {
-          // For random, we load all at once and shuffle client-side
           query = query.order('created_at', { ascending: false });
         }
         const { data: imgs, error, count } = await query.range(from, to);
 
         if (error) throw error;
         const col = document.getElementById('imagesColumn');
+        const total = count || 0;
 
         if (currentSort === 'random') {
-          // Accumulate all images for randomization
           if (imagesPage === 1) allImagesCache = [];
-          allImagesCache.push(...imgs);
-          const total = count || 0;
-          imagesHasMore = (from + imgs.length) < total;
+          if (imgs && imgs.length > 0) allImagesCache.push(...imgs);
+
+          // Check if there are more pages to load
+          const loadedCount = (imagesPage - 1) * IMAGES_PER_PAGE + (imgs ? imgs.length : 0);
+          imagesHasMore = loadedCount < total && (imgs && imgs.length > 0);
           imagesPage++;
 
-          if (!imagesHasMore) {
-            // All loaded, now shuffle and render
-            const shuffled = [...allImagesCache].sort(() => Math.random() - 0.5);
-            col.innerHTML = '';
-            for (const img of shuffled) {
-              const wrap = document.createElement('div');
-              wrap.className = 'img-wrap';
-              const el = document.createElement('img');
-              const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
-              el.src = url; el.alt = img.filename || ''; el.loading = 'lazy';
-              el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
-              wrap.appendChild(el);
-              const meta = document.createElement('div');
-              meta.className = 'img-meta';
-              meta.textContent = img.file_size ? formatSize(img.file_size) : '';
-              wrap.appendChild(meta);
-              col.appendChild(wrap);
-            }
-            document.getElementById('imagesLoading').style.display = 'none';
+          if (imagesHasMore) {
+            // Auto-chain next page load for Random mode
+            imagesLoading = false;
+            setTimeout(() => loadMoreImages(), 10);
+            return;
           }
+
+          // All loaded - shuffle and render
+          const shuffled = [...allImagesCache].sort(() => Math.random() - 0.5);
+          col.innerHTML = '';
+          for (const img of shuffled) {
+            const wrap = document.createElement('div');
+            wrap.className = 'img-wrap';
+            const el = document.createElement('img');
+            const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
+            el.src = url; el.alt = img.filename || ''; el.loading = 'lazy';
+            el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
+            wrap.appendChild(el);
+            const meta = document.createElement('div');
+            meta.className = 'img-meta';
+            meta.textContent = img.file_size ? formatSize(img.file_size) : '';
+            wrap.appendChild(meta);
+            col.appendChild(wrap);
+          }
+          document.getElementById('imagesLoading').style.display = 'none';
         } else {
           for (const img of imgs) {
             const wrap = document.createElement('div');
@@ -371,8 +376,8 @@
             wrap.appendChild(meta);
             col.appendChild(wrap);
           }
-          const total = count || 0;
-          imagesHasMore = (from + imgs.length) < total;
+          const loadedCount = from + (imgs ? imgs.length : 0);
+          imagesHasMore = loadedCount < total && (imgs && imgs.length > 0);
           imagesPage++;
           if (!imagesHasMore) document.getElementById('imagesLoading').style.display = 'none';
         }
@@ -384,7 +389,6 @@
       if (entries[0].isIntersecting) loadMoreImages();
     }, { rootMargin: '400px' });
 
-    // ===== MULTI-FOLDER UPLOAD FEATURE =====
     function openUpload() {
       pendingFolders = [];
       updateFolderListUI();
@@ -443,21 +447,13 @@
     document.getElementById('folderInput').addEventListener('change', async (e) => {
       const files = Array.from(e.target.files).filter(f => f.type && f.type.startsWith('image/'));
       if (!files.length) { showError('No images found in selected folder'); return; }
-
-      // Detect folder name from webkitRelativePath
       const folderName = files[0].webkitRelativePath ? files[0].webkitRelativePath.split('/')[0] : 'Untitled';
-
-      // Add to pending folders
       pendingFolders.push({ name: folderName, files: files });
       updateFolderListUI();
       updatePreview();
-
-      // If no custom title set, use first folder name
       if (!document.getElementById('setTitle').value.trim()) {
         document.getElementById('setTitle').value = folderName;
       }
-
-      // Clear input so same folder can be selected again if needed
       e.target.value = '';
     });
 
@@ -471,11 +467,7 @@
     function makeId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 9); }
 
     async function startUpload() {
-      if (pendingFolders.length === 0) {
-        showError('Please add at least one folder');
-        return;
-      }
-
+      if (pendingFolders.length === 0) { showError('Please add at least one folder'); return; }
       const btn = document.getElementById('uploadBtn');
       const fill = document.getElementById('progressFill');
       const status = document.getElementById('uploadStatus');
@@ -483,7 +475,6 @@
 
       try {
         const customTitle = document.getElementById('setTitle').value.trim();
-
         let totalFilesAll = 0;
         let uploadedTotal = 0;
         let failedTotal = 0;
@@ -494,7 +485,6 @@
           const setId = makeId();
           const folderFiles = folder.files;
           totalFilesAll += folderFiles.length;
-
           status.textContent = `Uploading "${folder.name}" - preparing...`;
 
           const coverFile = folderFiles[0];
@@ -535,14 +525,11 @@
             fill.style.width = (uploadedTotal + done) / totalFilesAll * 100 + '%';
             status.textContent = `Uploading... ${uploadedTotal + done}/${totalFilesAll} done (${ok} OK, ${fail} failed)`;
           }
-
           uploadedTotal += allResults.filter(r => r.success).length;
           failedTotal += allResults.filter(r => !r.success).length;
           failedNames.push(...allResults.filter(r => !r.success).map(r => r.name));
         }
-
         if (failedTotal > 0) showError(`${failedTotal} failed: ${failedNames.slice(0, 3).join(', ')}${failedNames.length > 3 ? '...' : ''}`);
-
         closeUpload(); setsPage = 1; showSets();
       } catch (err) {
         showError('Upload failed: ' + err.message); console.error(err);

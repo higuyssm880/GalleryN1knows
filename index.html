@@ -338,7 +338,7 @@
         const realSetId = setData.id;
         status.textContent = `Step 3/3: Uploading ${pendingFiles.length} images in parallel...`;
 
-        const BATCH_SIZE = 5;
+        const BATCH_SIZE = 50;
         const allResults = [];
         for (let batchStart = 0; batchStart < pendingFiles.length; batchStart += BATCH_SIZE) {
           const batch = pendingFiles.slice(batchStart, batchStart + BATCH_SIZE);

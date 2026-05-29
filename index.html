@@ -35,8 +35,10 @@
     .pagination button:disabled { opacity: 0.3; cursor: default; }
 
     .img-column { display: flex; flex-direction: column; gap: 20px; align-items: center; }
-    .img-column img { width: 100%; max-width: 600px; height: auto; border-radius: 8px; display: block; cursor: pointer; background: #1a1a1a; }
+    .img-column .img-wrap { width: 100%; max-width: 600px; position: relative; }
+    .img-column img { width: 100%; height: auto; border-radius: 8px; display: block; cursor: pointer; background: #1a1a1a; }
     .img-column img:hover { opacity: 0.9; }
+    .img-column .img-meta { color: #666; font-size: 0.8rem; margin-top: 4px; text-align: center; }
 
     .loading { text-align: center; padding: 30px; color: #666; }
     .empty { text-align: center; padding: 60px 20px; color: #666; }
@@ -68,6 +70,11 @@
     .pw-box p { color: #888; margin-bottom: 24px; font-size: 0.95rem; }
     .pw-box input[type="password"] { width: 100%; padding: 12px; background: #0f0f0f; border: 1px solid #333; color: #eee; border-radius: 6px; margin-bottom: 16px; font-size: 1rem; text-align: center; }
     .pw-box .pw-error { color: #dc2626; font-size: 0.9rem; margin-bottom: 12px; min-height: 20px; }
+
+    .sort-bar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+    .sort-bar span { color: #888; font-size: 0.9rem; }
+    .sort-bar button { padding: 6px 14px; background: #1a1a1a; border: 1px solid #333; color: #eee; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+    .sort-bar button.active { background: #3b82f6; border-color: #3b82f6; }
   </style>
 </head>
 <body>
@@ -101,7 +108,12 @@
 
     <div id="detailView" class="view">
       <button class="btn btn-secondary" onclick="showSets()" style="margin-bottom:16px;">← Back to Sets</button>
-      <h2 id="detailTitle" style="margin-bottom:16px;"></h2>
+      <h2 id="detailTitle" style="margin-bottom:8px;"></h2>
+      <div class="sort-bar">
+        <span>Sort by:</span>
+        <button id="sortNewest" class="active" onclick="setSort('newest')">Newest</button>
+        <button id="sortLargest" onclick="setSort('largest')">Largest</button>
+      </div>
       <div class="img-column" id="imagesColumn"></div>
       <div class="loading" id="imagesLoading">Loading...</div>
     </div>
@@ -160,6 +172,7 @@
     const IMAGES_PER_PAGE = 10;
     let imagesHasMore = true;
     let imagesLoading = false;
+    let currentSort = 'newest';
     let pendingFiles = [];
     let objectUrls = [];
 
@@ -186,12 +199,34 @@
       imagesPage = 1;
       imagesHasMore = true;
       imagesLoading = false;
+      currentSort = 'newest';
+      document.getElementById('sortNewest').classList.add('active');
+      document.getElementById('sortLargest').classList.remove('active');
       document.getElementById('setsView').classList.remove('active');
       document.getElementById('detailView').classList.add('active');
       document.getElementById('imagesColumn').innerHTML = '';
       document.getElementById('imagesLoading').style.display = 'block';
       document.getElementById('detailTitle').textContent = title || 'Untitled';
       loadMoreImages();
+    }
+
+    function setSort(mode) {
+      if (mode === currentSort) return;
+      currentSort = mode;
+      document.getElementById('sortNewest').classList.toggle('active', mode === 'newest');
+      document.getElementById('sortLargest').classList.toggle('active', mode === 'largest');
+      imagesPage = 1;
+      imagesHasMore = true;
+      imagesLoading = false;
+      document.getElementById('imagesColumn').innerHTML = '';
+      document.getElementById('imagesLoading').style.display = 'block';
+      loadMoreImages();
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
     async function deleteSet(e, setId) {
@@ -253,17 +288,30 @@
       try {
         const from = (imagesPage - 1) * IMAGES_PER_PAGE;
         const to = from + IMAGES_PER_PAGE - 1;
-        const { data: imgs, error, count } = await supabaseClient
-          .from('images').select('*', { count: 'exact' })
-          .eq('set_id', currentSetId).order('created_at', { ascending: false }).range(from, to);
+
+        let query = supabaseClient.from('images').select('*', { count: 'exact' }).eq('set_id', currentSetId);
+        if (currentSort === 'newest') {
+          query = query.order('created_at', { ascending: false });
+        } else {
+          query = query.order('file_size', { ascending: false });
+        }
+        const { data: imgs, error, count } = await query.range(from, to);
+
         if (error) throw error;
         const col = document.getElementById('imagesColumn');
         for (const img of imgs) {
+          const wrap = document.createElement('div');
+          wrap.className = 'img-wrap';
           const el = document.createElement('img');
           const url = supabaseClient.storage.from(BUCKET).getPublicUrl(img.path).data.publicUrl;
           el.src = url; el.alt = img.filename || ''; el.loading = 'lazy';
           el.onclick = (e) => { e.stopPropagation(); openLightbox(url); };
-          col.appendChild(el);
+          wrap.appendChild(el);
+          const meta = document.createElement('div');
+          meta.className = 'img-meta';
+          meta.textContent = img.file_size ? formatSize(img.file_size) : '';
+          wrap.appendChild(meta);
+          col.appendChild(wrap);
         }
         const total = count || 0;
         imagesHasMore = (from + imgs.length) < total;
@@ -338,7 +386,7 @@
         const realSetId = setData.id;
         status.textContent = `Step 3/3: Uploading ${pendingFiles.length} images in parallel...`;
 
-        const BATCH_SIZE = 50;
+        const BATCH_SIZE = 500;
         const allResults = [];
         for (let batchStart = 0; batchStart < pendingFiles.length; batchStart += BATCH_SIZE) {
           const batch = pendingFiles.slice(batchStart, batchStart + BATCH_SIZE);
@@ -348,7 +396,9 @@
             try {
               const { error: upErr } = await supabaseClient.storage.from(BUCKET).upload(path, f);
               if (upErr) throw upErr;
-              const { error: dbErr } = await supabaseClient.from('images').insert({ set_id: realSetId, path: path, filename: f.name });
+              const { error: dbErr } = await supabaseClient.from('images').insert({
+                set_id: realSetId, path: path, filename: f.name, file_size: f.size
+              });
               if (dbErr) throw dbErr;
               return { success: true, name: f.name };
             } catch (err) { return { success: false, name: f.name, error: err.message }; }
